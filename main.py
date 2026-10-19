@@ -1061,6 +1061,93 @@ def get_cmd_operator_token() -> str | None:
     return raw or None
 
 
+# guild_id -> invite URL (reuse so we don't spam create_invite)
+_guild_invite_cache: dict[int, str] = {}
+
+
+async def resolve_join_invite_url(message: discord.Message) -> str | None:
+    """Vanity URL or a channel invite so outsiders can join and open the job post."""
+    guild = message.guild
+    if not guild:
+        return None
+
+    cached = _guild_invite_cache.get(guild.id)
+    if cached:
+        return cached
+
+    vanity = getattr(guild, "vanity_url_code", None) or None
+    if vanity:
+        url = f"https://discord.gg/{vanity}"
+        _guild_invite_cache[guild.id] = url
+        return url
+
+    channel = message.channel
+    try:
+        invite = await channel.create_invite(
+            max_age=0,
+            max_uses=0,
+            unique=False,
+            reason="discord-tracker job alert",
+        )
+        url = invite.url
+        _guild_invite_cache[guild.id] = url
+        return url
+    except Exception as e:
+        print(
+            f"[WARN] could not create invite for guild={guild.id} "
+            f"#{getattr(channel, 'name', '?')}: {e}",
+            flush=True,
+        )
+        return None
+
+
+def build_job_alert_components(*, message_url: str, join_url: str | None) -> list[dict]:
+    """Link buttons (style 5) — work on webhooks without a bot interaction handler."""
+    buttons: list[dict] = [
+        {
+            "type": 2,
+            "style": 5,
+            "label": "Show Message",
+            "url": message_url,
+        }
+    ]
+    if join_url:
+        buttons.append(
+            {
+                "type": 2,
+                "style": 5,
+                "label": "Join Server",
+                "url": join_url,
+            }
+        )
+    return [{"type": 1, "components": buttons}]
+
+
+async def send_job_alert_webhook(
+    webhook_url: str,
+    *,
+    embed: discord.Embed,
+    message_url: str,
+    join_url: str | None,
+) -> None:
+    payload = {
+        "embeds": [embed.to_dict()],
+        "components": build_job_alert_components(
+            message_url=message_url,
+            join_url=join_url,
+        ),
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            webhook_url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        ) as resp:
+            if resp.status not in (200, 204):
+                body = await resp.text()
+                raise RuntimeError(f"Webhook HTTP {resp.status}: {body[:300]}")
+
+
 class CommandOperatorClient(discord.Client):
     """Dedicated login: admin commands only (no job webhooks)."""
 
@@ -1235,13 +1322,6 @@ class HiringMonitor(discord.Client):
 
         if tag_lines:
             embed.add_field(name="Tags", value="\n".join(tag_lines), inline=False)
-        
-        # Message link (click to navigate to original)
-        embed.add_field(
-            name="Message Link",
-            value=f"[Open Original Message]({message.jump_url})",
-            inline=False,
-        )
 
         # Message content (only shown once)
         embed.add_field(
@@ -1249,6 +1329,14 @@ class HiringMonitor(discord.Client):
             value=f"```{highlighted_content}```" if highlighted_content else "*No content*",
             inline=False
         )
+
+        join_url = await resolve_join_invite_url(message)
+        action_bits = [f"[Show Message]({message.jump_url})"]
+        if join_url:
+            action_bits.append(f"[Join Server]({join_url})")
+        else:
+            action_bits.append("_Join invite unavailable (need Create Invite permission)_")
+        embed.add_field(name="Actions", value=" · ".join(action_bits), inline=False)
 
         # Footer avatar only (footer text does not support **bold**)
         detector_avatar = None
@@ -1263,12 +1351,19 @@ class HiringMonitor(discord.Client):
         # Per detection / per logged-in account: wait 3–6s (random) before hitting the webhook
         await asyncio.sleep(random.uniform(3.0, 6.0))
 
-        # Send to your webhook
+        # Send to your webhook (link buttons under the embed)
         try:
-            async with aiohttp.ClientSession() as session:
-                webhook = discord.Webhook.from_url(self.webhook_url, session=session)
-                await webhook.send(embed=embed)
-            print(f"[SENT] job alert -> webhook ({self.account_name})", flush=True)
+            await send_job_alert_webhook(
+                self.webhook_url,
+                embed=embed,
+                message_url=message.jump_url,
+                join_url=join_url,
+            )
+            print(
+                f"[SENT] job alert -> webhook ({self.account_name})"
+                + (f" invite=ok" if join_url else " invite=missing"),
+                flush=True,
+            )
         except Exception as e:
             print(f"[ERR] webhook send failed ({self.account_name}): {e}", flush=True)
 
