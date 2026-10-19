@@ -1067,28 +1067,38 @@ def find_matches(content: str, config: dict):
     return triggers, tags, score
 
 
-OLLAMA_FILTER_SYSTEM = """You classify Discord messages for a developer job tracker.
+OLLAMA_FILTER_SYSTEM = """You classify Discord posts for a developer opportunity tracker.
 
-ACCEPT only when ALL are true:
-1) The author wants to HIRE / pay someone else (demand-side client), AND
-2) The work is software development (developer, engineer, programmer, coder, bot, app,
-   website, API, game code, script, fullstack, frontend, backend, etc.), AND
-3) The message has real substance (role, stack, project, or pay) — not just a trigger phrase.
+Evaluator profile (skills): Python, Java, JavaScript, TypeScript, React, Node.js, APIs,
+Shopify, AI integrations, automation, backend systems, and bug fixing.
 
-REJECT (relevant=false) when:
-- Message is only vague phrases like "looking for", "hiring", "need help", "seeking" with
-  no developer/development details
-- Author is offering services / looking for a job for themselves (supply-side)
-- Non-dev roles only (VA, caller, translator, marketer, designer-only, player LFG)
-- Spam, scam, dating, empty chatter
+Classify the post into exactly one category:
+- DEVELOPMENT_TASK — Someone needs a developer to build, fix, modify, maintain, or integrate software.
+- DEVELOPMENT_JOB — A company or client is recruiting a developer for employment or a contract.
+- PAID_BOUNTY — A specific coding task with a reward or payment.
+- OPEN_SOURCE — A software project needs contributors; payment may not be available.
+- NOT_OPPORTUNITY — General discussion, technical questions, tutorials, announcements,
+  advertisements, unrelated content, or the author offering their own services / seeking work.
+- UNCLEAR — Not enough information to determine whether someone needs a developer.
+
+Evaluate based on:
+1) Whether someone explicitly needs technical development work.
+2) Whether the work matches the skills above.
+3) Whether payment or compensation is mentioned.
+4) Whether the author is inviting applications, offers, or contributions.
+5) Whether there is a clear next step to contact the author or apply.
+
+Set relevant=true only for DEVELOPMENT_TASK, DEVELOPMENT_JOB, or PAID_BOUNTY when the work
+reasonably matches the skills. Set relevant=false for OPEN_SOURCE, NOT_OPPORTUNITY, and UNCLEAR.
 
 Examples:
-- "looking for" -> {"relevant": false, "reason": "too vague"}
-- "looking for a React developer, $40/hr" -> {"relevant": true, "reason": "hiring react dev"}
-- "I'm a developer looking for work" -> {"relevant": false, "reason": "supply-side"}
+- "looking for" -> {"category":"UNCLEAR","relevant":false,"reason":"too vague"}
+- "looking for a React developer, $40/hr" -> {"category":"DEVELOPMENT_JOB","relevant":true,"reason":"hiring react dev"}
+- "I'm a developer looking for work" -> {"category":"NOT_OPPORTUNITY","relevant":false,"reason":"supply-side"}
+- "Fix our Shopify checkout bug, $200 bounty" -> {"category":"PAID_BOUNTY","relevant":true,"reason":"paid shopify fix"}
 
 Reply with ONLY a single JSON object, no markdown:
-{"relevant": true|false, "reason": "short"}"""
+{"category":"DEVELOPMENT_TASK|DEVELOPMENT_JOB|PAID_BOUNTY|OPEN_SOURCE|NOT_OPPORTUNITY|UNCLEAR","relevant":true|false,"reason":"short"}"""
 
 
 def is_too_vague_hiring_post(content: str) -> bool:
@@ -1148,35 +1158,81 @@ def ollama_filter_enabled() -> bool:
     return bool((os.getenv("OLLAMA_API_KEY") or "").strip())
 
 
-def _parse_ollama_relevant(raw: str) -> bool | None:
+_OLLAMA_ACCEPT_CATEGORIES = frozenset({
+    "DEVELOPMENT_TASK",
+    "DEVELOPMENT_JOB",
+    "PAID_BOUNTY",
+})
+_OLLAMA_REJECT_CATEGORIES = frozenset({
+    "OPEN_SOURCE",
+    "NOT_OPPORTUNITY",
+    "UNCLEAR",
+})
+
+
+def _normalize_ollama_category(raw: str) -> str:
+    cat = re.sub(r"[^A-Za-z0-9]+", "_", (raw or "").strip().upper()).strip("_")
+    aliases = {
+        "DEVELOPMENT_TASK": "DEVELOPMENT_TASK",
+        "DEVELOPMENT_JOB": "DEVELOPMENT_JOB",
+        "PAID_BOUNTY": "PAID_BOUNTY",
+        "OPEN_SOURCE": "OPEN_SOURCE",
+        "OPEN_SOURCE_CONTRIBUTION": "OPEN_SOURCE",
+        "NOT_OPPORTUNITY": "NOT_OPPORTUNITY",
+        "NOT_A_DEVELOPMENT_OPPORTUNITY": "NOT_OPPORTUNITY",
+        "UNCLEAR": "UNCLEAR",
+    }
+    return aliases.get(cat, cat)
+
+
+def _relevant_from_ollama_payload(data: dict) -> bool | None:
+    if "relevant" in data:
+        return bool(data["relevant"])
+    cat = _normalize_ollama_category(str(data.get("category") or ""))
+    if cat in _OLLAMA_ACCEPT_CATEGORIES:
+        return True
+    if cat in _OLLAMA_REJECT_CATEGORIES:
+        return False
+    return None
+
+
+def _parse_ollama_relevant(raw: str) -> tuple[bool | None, str]:
+    """Returns (relevant, category)."""
     text = (raw or "").strip()
     if not text:
-        return None
+        return None, ""
     # Strip optional ```json fences
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
         text = re.sub(r"\s*```$", "", text)
+
+    def from_obj(data: object) -> tuple[bool | None, str]:
+        if not isinstance(data, dict):
+            return None, ""
+        cat = _normalize_ollama_category(str(data.get("category") or ""))
+        return _relevant_from_ollama_payload(data), cat
+
     try:
-        data = json.loads(text)
-        if isinstance(data, dict) and "relevant" in data:
-            return bool(data["relevant"])
+        relevant, cat = from_obj(json.loads(text))
+        if relevant is not None:
+            return relevant, cat
     except json.JSONDecodeError:
         pass
     # Fallback: look for a JSON object substring
     m = re.search(r"\{[^{}]*\}", text, flags=re.DOTALL)
     if m:
         try:
-            data = json.loads(m.group(0))
-            if isinstance(data, dict) and "relevant" in data:
-                return bool(data["relevant"])
+            relevant, cat = from_obj(json.loads(m.group(0)))
+            if relevant is not None:
+                return relevant, cat
         except json.JSONDecodeError:
             pass
     low = text.lower()
     if re.search(r'"relevant"\s*:\s*true', low):
-        return True
+        return True, ""
     if re.search(r'"relevant"\s*:\s*false', low):
-        return False
-    return None
+        return False, ""
+    return None, ""
 
 
 async def ollama_is_dev_hiring_post(content: str) -> tuple[bool, str]:
@@ -1242,11 +1298,14 @@ async def ollama_is_dev_hiring_post(content: str) -> tuple[bool, str]:
             ch0 = data["choices"][0] or {}
             reply = str((ch0.get("message") or {}).get("content") or "")
 
-    relevant = _parse_ollama_relevant(reply)
+    relevant, category = _parse_ollama_relevant(reply)
     if relevant is None:
         print(f"[OLLAMA] unparseable reply: {reply[:200]}", flush=True)
         return allow_on_error, "unparseable"
-    return relevant, ("accept" if relevant else "reject")
+    label = "accept" if relevant else "reject"
+    if category:
+        label = f"{label}:{category}"
+    return relevant, label
 
 
 def get_cmd_operator_token() -> str | None:
