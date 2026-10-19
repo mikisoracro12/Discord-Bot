@@ -1,0 +1,41 @@
+{
+  "triggers_primary": [
+    "hiring",
+    "recruiting",
+    "looking for",
+    "join our team",
+    "need dev",
+    "join us",
+    "budget",
+    "salary",
+    "need project",
+    "have project",
+    "need help",
+    "needed",
+    "need build",
+    "need code",
+    "need program",
+    "help code",
+    "help build",
+    "wts",
+    "paid work",
+    "paid project",
+    "seeking"
+  ],
+  "budget_payment": [
+    "$",
+    "usd",
+    "budget",
+    "salary",
+    "paid",
+    "paying",
+    "rate",
+    "per hour",
+    "fixed price"
+  ],
+  "special_patterns": {
+    "word_boundary": [
+      "wtb"
+    ]
+  }
+}
