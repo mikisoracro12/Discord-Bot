@@ -34,6 +34,20 @@ def test_ai_json_to_result_rejects_low_score():
     assert result.confidence == "REJECTED"
 
 
+def test_ai_accepts_without_budget():
+    result = AiEngine._to_result({
+        "accepted": True,
+        "score": 72,
+        "category": "web",
+        "technologies": ["React"],
+        "budget": None,
+        "task_type": "hiring",
+        "reason": "Looking for a React developer, no budget stated",
+    })
+    assert result.accepted
+    assert result.budget_hint is None
+
+
 def test_prefilter_asks_ai_for_taskish_message():
     engine = RuleEngine("config/keywords.yaml", threshold=70, high_threshold=90)
     assert engine.should_ask_ai("Need a developer to build a Discord bot, paid.")

@@ -1,7 +1,7 @@
 from app.classifier.rule_engine import RuleEngine
 
 def engine():
-    return RuleEngine("config/keywords.yaml", threshold=70, high_threshold=90)
+    return RuleEngine("config/keywords.yaml", threshold=55, high_threshold=85)
 
 def test_discord_bot_task():
     r = engine().classify("Need someone to build a Discord bot for $200.")

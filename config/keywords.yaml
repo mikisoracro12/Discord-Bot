@@ -5,20 +5,45 @@ task_request_phrases:
   - looking for someone
   - looking for a developer
   - looking for developers
+  - looking for developer
+  - looking for a programmer
+  - looking for programmer
+  - looking for an engineer
+  - looking for engineer
+  - looking for a freelancer
+  - looking for freelancer
+  - seeking a developer
+  - seeking developer
+  - seeking developers
+  - find a developer
+  - find developer
   - need a developer
+  - need developers
+  - need a programmer
+  - need programmer
+  - need an engineer
+  - need engineer
+  - need a freelancer
   - need someone
   - need someone to build
   - need someone to create
   - need someone to develop
   - need someone to fix
+  - need someone to integrate
   - need help building
   - need help developing
+  - need help with
   - developer needed
+  - developers needed
   - programmer needed
   - developer wanted
+  - programmers wanted
   - programmer wanted
   - hire a developer
+  - hire developer
   - hiring a developer
+  - hiring developers
+  - hiring developer
   - looking to hire
   - paid project
   - paid task
@@ -30,14 +55,22 @@ task_request_phrases:
   - can someone make
   - can someone create
   - can someone develop
+  - can someone integrate
   - anyone able to build
   - anyone able to make
   - anyone able to develop
   - anyone here who can build
   - anyone here who can develop
+  - who can build
+  - who can develop
+  - who can create
+  - who can fix
   - paid work
   - project available
   - dm if interested
+  - is anyone available
+  - available to build
+  - available to develop
 
 software_keywords:
   - discord bot

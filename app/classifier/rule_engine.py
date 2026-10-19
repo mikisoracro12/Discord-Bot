@@ -78,11 +78,15 @@ class RuleEngine:
         score -= min(len(recruiting), 2) * 45
         score -= min(len(scam), 2) * 60
 
-        # Budget regex is an additional task signal.
+        # Budget is optional bonus only — never required.
         if re.search(r"(?:[$£€]\s?\d[\d,]*(?:\.\d+)?|\d[\d,]*(?:\.\d+)?\s?(?:usd|eur|gbp))", text):
             score += 10
 
-        # Require both task intent and software evidence.
+        # Task + software is enough; actions help borderline cases without budget.
+        if task and software and actions:
+            score = max(score, self.threshold)
+
+        # Require both task intent and software evidence. Payment/budget not required.
         accepted = bool(task) and bool(software) and score >= self.threshold
         confidence = (
             "HIGH" if accepted and score >= self.high_threshold

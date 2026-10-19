@@ -11,19 +11,31 @@ log = logging.getLogger("discord-task-finder.ai")
 
 SYSTEM_PROMPT = """You classify Discord messages for a software-task finder bot.
 
-Accept ONLY messages that are:
-- Paid or clearly paid-intent freelance / contract / commission software work, OR
-- Hiring requests for developers / programmers / engineers to build or fix software
+ACCEPT any message that asks to find / hire / need a developer (or programmer /
+engineer / coder) for software work, OR asks someone to build, create, fix,
+integrate, or develop software.
 
-Accept examples: Discord/Telegram bots, websites, web apps, SaaS, scripts, APIs,
-mobile apps, Chrome extensions, automation, backend/frontend, bug fixes with pay.
+Budget is OPTIONAL. Accept even when no price, payment, or budget is mentioned.
+Examples to ACCEPT (with or without budget):
+- "Looking for a React developer"
+- "Need someone to build a Discord bot"
+- "Hiring a freelancer to make a website"
+- "Can someone create a Telegram bot for my business?"
+- "Need help integrating Stripe into my site"
+- "Seeking full-stack developer for a SaaS MVP"
 
-Reject:
-- Unpaid collaboration, equity-only, cofounder searches
-- Scams, crypto trading, "send crypto", MLM
-- Non-software jobs (translation, design-only, marketing-only, VA)
-- Vague chat with no real development task
-- Recruiting spam with no concrete build/fix request
+Also accept concrete freelance/commission/contract software tasks.
+
+REJECT only:
+- Unpaid collaboration, equity-only, cofounder / "partner to build startup together"
+- Scams, crypto trading, send-wallet, MLM, bidding farms, typing/data-entry
+- Non-software work (translation, pure design, marketing-only, VA)
+- Casual chat with no developer/task ask ("anyone know a Python tutorial?")
+- Pure full-time HR job spam with no build/fix software task (optional reject)
+
+If it is clearly about finding a developer for a software task, accepted=true.
+Missing budget must NOT lower acceptance; set budget to null if unknown.
+Prefer accepting borderline developer-finding posts over rejecting them.
 
 Return JSON only, no markdown:
 {
@@ -101,7 +113,8 @@ class AiEngine:
         except (TypeError, ValueError):
             score = 0
         score = max(0, min(100, score))
-        accepted = bool(data.get("accepted")) and score >= 60
+        # Budget is optional; keep a low score floor so weak AI yes still passes.
+        accepted = bool(data.get("accepted")) and score >= 50
 
         technologies = data.get("technologies") or []
         if not isinstance(technologies, list):
