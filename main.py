@@ -712,6 +712,11 @@ def _spawn_restart_process() -> None:
     else:
         script = os.path.abspath(sys.argv[0])
         args = [sys.executable, script, *sys.argv[1:]]
+    # os.execv on Windows splits unquoted paths with spaces (e.g. "D:\work miki\...").
+    # Popen with an arg list is reliable; parent always exits via os._exit after this.
+    if os.name == "nt":
+        subprocess.Popen(args, cwd=os.getcwd())
+        return
     try:
         os.execv(sys.executable, args)
     except OSError:
@@ -1138,8 +1143,12 @@ class HiringMonitor(discord.Client):
                 if cmd_st["self_admin"] and self.hub and self.hub.cmd_handler_user_id == aid:
                     return
 
-        # Ignore own messages and bots (optional - remove if you want bot posts)
-        if message.author.id == self.user.id or message.author.bot:
+        # Ignore own messages by default (testing from the monitor account never alerts).
+        # Set ALERT_ON_OWN_MESSAGES=1 in .env to allow self-tests.
+        allow_own = _env_truthy(os.getenv("ALERT_ON_OWN_MESSAGES"), default=False)
+        if message.author.id == self.user.id and not allow_own:
+            return
+        if message.author.bot:
             return
 
         if message_is_blocked(message, self.blocklist):
@@ -1164,6 +1173,13 @@ class HiringMonitor(discord.Client):
         # so we don't alert on generic chatter without context.
         if not all_trigger_hits and any_soft and score < self.keywords["scoring"]["min_score_to_alert_if_only_soft"]:
             return
+
+        preview = (message.content or "").replace("\n", " ")[:80]
+        print(
+            f"[HIT] {self.account_name} score={score} "
+            f"#{getattr(message.channel, 'name', '?')} | {preview}",
+            flush=True,
+        )
 
         # Highlight trigger keywords (exact ❗keyword❗).
         # Note: Discord embeds don't support coloring just the "!" characters.
@@ -1248,9 +1264,13 @@ class HiringMonitor(discord.Client):
         await asyncio.sleep(random.uniform(3.0, 6.0))
 
         # Send to your webhook
-        async with aiohttp.ClientSession() as session:
-            webhook = discord.Webhook.from_url(self.webhook_url, session=session)
-            await webhook.send(embed=embed)
+        try:
+            async with aiohttp.ClientSession() as session:
+                webhook = discord.Webhook.from_url(self.webhook_url, session=session)
+                await webhook.send(embed=embed)
+            print(f"[SENT] job alert -> webhook ({self.account_name})", flush=True)
+        except Exception as e:
+            print(f"[ERR] webhook send failed ({self.account_name}): {e}", flush=True)
 
 async def main():
     tokens, keywords, jobs_webhook_url, status_webhook_url = load_config()
