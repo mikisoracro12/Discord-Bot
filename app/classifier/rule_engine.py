@@ -108,7 +108,40 @@ class RuleEngine:
             matched_positive=positives,
             matched_negative=negatives,
             reason=reason,
+            classifier="rules",
         )
+
+    def should_ask_ai(
+        self,
+        message: str,
+        rule_result: ClassificationResult | None = None,
+        prefilter_threshold: int = 25,
+    ) -> bool:
+        """Cheap gate so obvious junk never hits the AI API."""
+        result = rule_result or self.classify(message)
+        if result.accepted:
+            return True
+
+        text = self.normalize(message)
+        scam = self.phrase_matches(text, self.cfg.get("scam_phrases", []))
+        collaboration = self.phrase_matches(text, self.cfg.get("collaboration_phrases", []))
+        recruiting = self.phrase_matches(text, self.cfg.get("recruiting_phrases", []))
+        task = self.phrase_matches(text, self.cfg.get("task_request_phrases", []))
+        software = self.phrase_matches(text, self.cfg.get("software_keywords", []))
+        actions = self.phrase_matches(text, self.cfg.get("development_actions", []))
+        payment = self.phrase_matches(text, self.cfg.get("payment_phrases", []))
+
+        if scam and not (task and software):
+            return False
+        if (collaboration or recruiting) and not (task and (software or actions)):
+            return False
+
+        soft_score = result.score
+        soft_score += min(len(task), 2) * 10
+        soft_score += min(len(software), 3) * 8
+        soft_score += min(len(actions), 2) * 8
+        soft_score += min(len(payment), 2) * 5
+        return soft_score >= prefilter_threshold or bool(task and (software or actions))
 
     def detect_category(self, text: str) -> str | None:
         best = None

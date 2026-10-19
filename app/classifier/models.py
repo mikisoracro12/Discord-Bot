@@ -11,3 +11,5 @@ class ClassificationResult:
     matched_positive: list[str] = field(default_factory=list)
     matched_negative: list[str] = field(default_factory=list)
     reason: str = ""
+    classifier: str = "rules"
+    budget_hint: Optional[str] = None

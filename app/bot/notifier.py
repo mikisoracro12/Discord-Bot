@@ -2,6 +2,7 @@ import discord
 from app.extractor.category import human_category
 
 async def send_task(channel: discord.TextChannel, message, result, budget):
+    via = "AI" if getattr(result, "classifier", "") == "ai" else "Rules"
     embed = discord.Embed(
         title="🚨 New Software Task",
         description=message.content[:4000],
@@ -29,6 +30,12 @@ async def send_task(channel: discord.TextChannel, message, result, budget):
         value=", ".join(result.technologies) or "Not specified",
         inline=False,
     )
+    if result.reason:
+        embed.add_field(
+            name="Why matched",
+            value=result.reason[:1024],
+            inline=False,
+        )
     embed.add_field(
         name="Source",
         value=f"{message.guild.name} → #{message.channel.name}",
@@ -44,6 +51,6 @@ async def send_task(channel: discord.TextChannel, message, result, budget):
         value=f"[Jump to message]({message.jump_url})",
         inline=False,
     )
-    embed.set_footer(text="Discord Task Finder • Rule-based V1")
+    embed.set_footer(text=f"Discord Task Finder • {via}")
 
     await channel.send(embed=embed)

@@ -9,6 +9,14 @@ class Settings(BaseSettings):
     task_threshold: int = 70
     high_confidence_threshold: int = 90
 
+    # AI classification (Ollama Cloud OpenAI-compatible by default)
+    ai_enabled: bool = True
+    ai_api_key: str = ""
+    ai_base_url: str = "https://ollama.com/v1"
+    ai_model: str = "gemma4:31b"
+    ai_prefilter_threshold: int = 25
+    ai_timeout_seconds: float = 30.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -23,6 +31,10 @@ class Settings(BaseSettings):
             if value:
                 result.add(int(value))
         return result
+
+    @property
+    def ai_ready(self) -> bool:
+        return self.ai_enabled and bool(self.ai_api_key.strip())
 
 @lru_cache
 def get_settings() -> Settings:

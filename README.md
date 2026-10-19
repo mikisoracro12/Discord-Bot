@@ -1,11 +1,10 @@
 # Discord Task Finder
 
-A zero-API-cost Discord bot that monitors configured Discord channels and forwards high-quality software-development task posts to your own Discord server.
+A Discord bot that monitors configured Discord channels and forwards high-quality software-development / hiring task posts to your own Discord server.
 
 ## Features
 
-- No LLM
-- No paid API
+- Hybrid classification: keyword prefilter + optional AI (Ollama Cloud / OpenAI-compatible)
 - Keyword/phrase matching
 - Weighted scoring
 - Context-aware exclusions
@@ -14,7 +13,7 @@ A zero-API-cost Discord bot that monitors configured Discord channels and forwar
 - Technology extraction
 - Budget extraction
 - SQLite duplicate prevention
-- Discord embeds
+- Discord embeds with jump links
 - Configurable YAML keywords
 - Pytest tests
 
@@ -77,9 +76,28 @@ DESTINATION_CHANNEL_ID=345678901234567890
 DATABASE_URL=sqlite+aiosqlite:///tasks.db
 TASK_THRESHOLD=70
 HIGH_CONFIDENCE_THRESHOLD=90
+
+AI_ENABLED=true
+AI_API_KEY=YOUR_OLLAMA_API_KEY
+AI_BASE_URL=https://ollama.com/v1
+AI_MODEL=gemma4:31b
+AI_PREFILTER_THRESHOLD=25
+AI_TIMEOUT_SECONDS=30
 ```
 
 Never commit `.env`.
+
+Create an API key at [ollama.com/settings/keys](https://ollama.com/settings/keys). Set `AI_ENABLED=false` to use rules only.
+
+Defaults target **Ollama Cloud**. For a local Ollama server instead:
+
+```env
+AI_BASE_URL=http://localhost:11434/v1
+AI_API_KEY=ollama
+AI_MODEL=llama3.2
+```
+
+Any OpenAI-compatible endpoint works if you change `AI_BASE_URL` and `AI_MODEL`.
 
 ## 5. Invite the bot
 
@@ -138,18 +156,19 @@ No Python code change is required for normal keyword updates.
 
 ## 10. How scoring works
 
-A message receives positive points for task intent, software-development terms, development actions, payment/budget signals, and technology signals.
+**Rules (always run first):** positive points for task intent, software terms, development actions, payment/budget; negative points for collaboration, recruiting, scam, and irrelevant-job patterns.
 
-It receives negative points for collaboration, recruiting, scam, and irrelevant-job patterns.
+**Hybrid AI (when `AI_ENABLED=true` and `AI_API_KEY` is set):**
 
-The bot requires both:
+1. Rules score the message.
+2. A cheap prefilter decides whether the message is worth an AI call (`AI_PREFILTER_THRESHOLD`).
+3. Obvious junk never hits the API.
+4. Candidate messages are classified by the AI for hiring / freelance / commission software tasks.
+5. If the AI call fails, the bot falls back to the rule result.
 
-1. A task-request signal
-2. A software-development signal
+Accepted tasks are forwarded as embeds that include a jump link to the original Discord message.
 
-and the final score must meet `TASK_THRESHOLD`.
-
-When uncertain, V1 prefers rejection over forwarding junk.
+When uncertain, the bot prefers rejection over forwarding junk.
 
 ## 11. Important limitation
 
