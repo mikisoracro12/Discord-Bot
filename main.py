@@ -22,6 +22,59 @@ import urllib.error
 _shutdown_sent = False
 _intentional_restart = False
 _exit_hooks_installed = False
+_ansi_enabled = False
+
+# ANSI colors for console (accept=green, reject=yellow, error=red)
+_ANSI_RESET = "\033[0m"
+_ANSI_GREEN = "\033[92m"
+_ANSI_YELLOW = "\033[93m"
+_ANSI_RED = "\033[91m"
+
+
+def _enable_ansi_colors() -> None:
+    """Enable VT sequences on Windows consoles when possible."""
+    global _ansi_enabled
+    if _ansi_enabled:
+        return
+    _ansi_enabled = True
+    if os.name != "nt":
+        return
+    try:
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+            kernel32.SetConsoleMode(handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING)
+    except Exception:
+        pass
+
+
+def _colorize_ollama_note(note: str) -> str:
+    """Color accept green, reject yellow, errors/issues red."""
+    _enable_ansi_colors()
+    low = (note or "").lower()
+    if low.startswith("accept"):
+        return f"{_ANSI_GREEN}{note}{_ANSI_RESET}"
+    if low.startswith("reject"):
+        return f"{_ANSI_YELLOW}{note}{_ANSI_RESET}"
+    if (
+        low.startswith("error")
+        or low.startswith("http_")
+        or low.startswith("unparseable")
+        or "failed" in low
+        or "error" in low
+    ):
+        return f"{_ANSI_RED}{note}{_ANSI_RESET}"
+    return note
+
+
+def _print_ollama(msg: str, *, color: str | None = None) -> None:
+    _enable_ansi_colors()
+    if color:
+        print(f"[OLLAMA] {color}{msg}{_ANSI_RESET}", flush=True)
+    else:
+        print(f"[OLLAMA] {_colorize_ollama_note(msg)}", flush=True)
 
 def _post_webhook_sync(webhook_url: str, payload: dict, timeout_s: float = 8.0) -> None:
     data = json.dumps(payload).encode("utf-8")
@@ -1281,11 +1334,11 @@ async def ollama_is_dev_hiring_post(content: str) -> tuple[bool, str]:
                 raw_body = await resp.text()
                 if resp.status != 200:
                     note = f"http_{resp.status}"
-                    print(f"[OLLAMA] error {note}: {raw_body[:200]}", flush=True)
+                    _print_ollama(f"error {note}: {raw_body[:200]}", color=_ANSI_RED)
                     return allow_on_error, note
                 data = json.loads(raw_body)
     except Exception as e:
-        print(f"[OLLAMA] request failed: {e}", flush=True)
+        _print_ollama(f"request failed: {e}", color=_ANSI_RED)
         return allow_on_error, f"error:{type(e).__name__}"
 
     # Ollama /api/chat -> message.content; OpenAI-compat would be choices[0]...
@@ -1300,7 +1353,7 @@ async def ollama_is_dev_hiring_post(content: str) -> tuple[bool, str]:
 
     relevant, category = _parse_ollama_relevant(reply)
     if relevant is None:
-        print(f"[OLLAMA] unparseable reply: {reply[:200]}", flush=True)
+        _print_ollama(f"unparseable reply: {reply[:200]}", color=_ANSI_RED)
         return allow_on_error, "unparseable"
     label = "accept" if relevant else "reject"
     if category:
@@ -1533,8 +1586,9 @@ class HiringMonitor(discord.Client):
         # Stage 2: Ollama Cloud — keep only developer hiring / development tasks
         keep, ollama_note = await ollama_is_dev_hiring_post(message.content or "")
         if ollama_note != "skipped":
+            colored = _colorize_ollama_note(ollama_note)
             print(
-                f"[OLLAMA] {ollama_note} | #{getattr(message.channel, 'name', '?')} | {preview}",
+                f"[OLLAMA] {colored} | #{getattr(message.channel, 'name', '?')} | {preview}",
                 flush=True,
             )
         if not keep:
