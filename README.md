@@ -90,6 +90,22 @@ By default, saving `.env` triggers a **full restart** (needed for new tokens, we
 
 Place `.env` in the **same folder** you run the app from (next to the EXE if you use the build).
 
+## AI filter (Ollama Cloud)
+
+Optional **second stage** after keyword scoring. Only posts that look like **developer hiring / development tasks** are forwarded.
+
+1. Create an API key at [ollama.com](https://ollama.com)
+2. In `.env`:
+
+```env
+OLLAMA_FILTER=1
+OLLAMA_API_KEY=your_key
+OLLAMA_BASE_URL=https://ollama.com
+OLLAMA_MODEL=gemma4:31b-cloud
+```
+
+Console shows `[OLLAMA] accept|reject|...` for each keyword hit. Set `OLLAMA_FILTER=0` to disable.
+
 ## Keywords
 
 Edit `keywords.json` to tune:

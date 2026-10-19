@@ -713,9 +713,22 @@ def _spawn_restart_process() -> None:
         script = os.path.abspath(sys.argv[0])
         args = [sys.executable, script, *sys.argv[1:]]
     # os.execv on Windows splits unquoted paths with spaces (e.g. "D:\work miki\...").
-    # Popen with an arg list is reliable; parent always exits via os._exit after this.
+    # Also: a plain Popen child dies with the parent console on os._exit — detach it.
     if os.name == "nt":
-        subprocess.Popen(args, cwd=os.getcwd())
+        flags = (
+            subprocess.DETACHED_PROCESS
+            | subprocess.CREATE_NEW_PROCESS_GROUP
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+        subprocess.Popen(
+            args,
+            cwd=os.getcwd(),
+            creationflags=flags,
+            close_fds=True,
+            stdin=subprocess.DEVNULL,
+            stdout=None,
+            stderr=None,
+        )
         return
     try:
         os.execv(sys.executable, args)
@@ -1054,6 +1067,188 @@ def find_matches(content: str, config: dict):
     return triggers, tags, score
 
 
+OLLAMA_FILTER_SYSTEM = """You classify Discord messages for a developer job tracker.
+
+ACCEPT only when ALL are true:
+1) The author wants to HIRE / pay someone else (demand-side client), AND
+2) The work is software development (developer, engineer, programmer, coder, bot, app,
+   website, API, game code, script, fullstack, frontend, backend, etc.), AND
+3) The message has real substance (role, stack, project, or pay) — not just a trigger phrase.
+
+REJECT (relevant=false) when:
+- Message is only vague phrases like "looking for", "hiring", "need help", "seeking" with
+  no developer/development details
+- Author is offering services / looking for a job for themselves (supply-side)
+- Non-dev roles only (VA, caller, translator, marketer, designer-only, player LFG)
+- Spam, scam, dating, empty chatter
+
+Examples:
+- "looking for" -> {"relevant": false, "reason": "too vague"}
+- "looking for a React developer, $40/hr" -> {"relevant": true, "reason": "hiring react dev"}
+- "I'm a developer looking for work" -> {"relevant": false, "reason": "supply-side"}
+
+Reply with ONLY a single JSON object, no markdown:
+{"relevant": true|false, "reason": "short"}"""
+
+
+def is_too_vague_hiring_post(content: str) -> bool:
+    """Cheap local gate: bare trigger phrases are not development tasks."""
+    text = re.sub(r"\s+", " ", (content or "").strip())
+    if not text:
+        return True
+    # Extremely short posts almost never contain a real job brief
+    if len(text) < 16:
+        return True
+
+    low = text.lower()
+    # Strip common trigger fluff and punctuation; require leftover substance
+    fluff = [
+        "looking for a",
+        "looking for",
+        "join our team",
+        "paid project",
+        "paid work",
+        "need project",
+        "have project",
+        "need program",
+        "need build",
+        "need code",
+        "help code",
+        "help build",
+        "need help",
+        "need dev",
+        "recruiting",
+        "hiring",
+        "seeking",
+        "needed",
+        "budget",
+        "salary",
+        "join us",
+        "wts",
+        "wtb",
+    ]
+    remainder = low
+    for phrase in sorted(fluff, key=len, reverse=True):
+        remainder = remainder.replace(phrase, " ")
+    remainder = re.sub(r"[^a-z0-9+#.\s]", " ", remainder)
+    remainder = re.sub(r"\s+", " ", remainder).strip()
+    # Need leftover substance (e.g. "developer", "react", "fullstack") — not empty after fluff
+    tokens = [t for t in remainder.split() if len(t) > 1]
+    if not tokens:
+        return True
+    if len(tokens) == 1 and len(tokens[0]) < 4:
+        return True
+    return False
+
+
+def ollama_filter_enabled() -> bool:
+    load_dotenv()
+    if not _env_truthy(os.getenv("OLLAMA_FILTER"), default=False):
+        return False
+    return bool((os.getenv("OLLAMA_API_KEY") or "").strip())
+
+
+def _parse_ollama_relevant(raw: str) -> bool | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    # Strip optional ```json fences
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text)
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict) and "relevant" in data:
+            return bool(data["relevant"])
+    except json.JSONDecodeError:
+        pass
+    # Fallback: look for a JSON object substring
+    m = re.search(r"\{[^{}]*\}", text, flags=re.DOTALL)
+    if m:
+        try:
+            data = json.loads(m.group(0))
+            if isinstance(data, dict) and "relevant" in data:
+                return bool(data["relevant"])
+        except json.JSONDecodeError:
+            pass
+    low = text.lower()
+    if re.search(r'"relevant"\s*:\s*true', low):
+        return True
+    if re.search(r'"relevant"\s*:\s*false', low):
+        return False
+    return None
+
+
+async def ollama_is_dev_hiring_post(content: str) -> tuple[bool, str]:
+    """
+    Stage-2 filter via Ollama Cloud (https://ollama.com).
+    Returns (keep_alert, note). If filter is disabled, returns (True, "skipped").
+    """
+    load_dotenv()
+    if not ollama_filter_enabled():
+        return True, "skipped"
+
+    api_key = (os.getenv("OLLAMA_API_KEY") or "").strip()
+    base = (os.getenv("OLLAMA_BASE_URL") or "https://ollama.com").rstrip("/")
+    model = (os.getenv("OLLAMA_MODEL") or "gemma4:31b-cloud").strip()
+    # On API failure: allow (1) keeps alerts flowing; reject (0) drops the post.
+    # Default reject so API failures don't leak vague keyword hits.
+    allow_on_error = _env_truthy(os.getenv("OLLAMA_FILTER_ALLOW_ON_ERROR"), default=False)
+    timeout_s = float(os.getenv("OLLAMA_TIMEOUT_SECONDS") or "45")
+
+    body = {
+        "model": model,
+        "stream": False,
+        "format": "json",
+        "messages": [
+            {"role": "system", "content": OLLAMA_FILTER_SYSTEM},
+            {
+                "role": "user",
+                "content": f"Classify this Discord message:\n\n{(content or '')[:2000]}",
+            },
+        ],
+    }
+    url = f"{base}/api/chat"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                url,
+                json=body,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=timeout_s),
+            ) as resp:
+                raw_body = await resp.text()
+                if resp.status != 200:
+                    note = f"http_{resp.status}"
+                    print(f"[OLLAMA] error {note}: {raw_body[:200]}", flush=True)
+                    return allow_on_error, note
+                data = json.loads(raw_body)
+    except Exception as e:
+        print(f"[OLLAMA] request failed: {e}", flush=True)
+        return allow_on_error, f"error:{type(e).__name__}"
+
+    # Ollama /api/chat -> message.content; OpenAI-compat would be choices[0]...
+    reply = ""
+    if isinstance(data, dict):
+        msg = data.get("message") or {}
+        if isinstance(msg, dict):
+            reply = str(msg.get("content") or "")
+        if not reply and isinstance(data.get("choices"), list) and data["choices"]:
+            ch0 = data["choices"][0] or {}
+            reply = str((ch0.get("message") or {}).get("content") or "")
+
+    relevant = _parse_ollama_relevant(reply)
+    if relevant is None:
+        print(f"[OLLAMA] unparseable reply: {reply[:200]}", flush=True)
+        return allow_on_error, "unparseable"
+    return relevant, ("accept" if relevant else "reject")
+
+
 def get_cmd_operator_token() -> str | None:
     """Dedicated token for admin commands (optional; see README)."""
     load_dotenv()
@@ -1267,6 +1462,24 @@ class HiringMonitor(discord.Client):
             f"#{getattr(message.channel, 'name', '?')} | {preview}",
             flush=True,
         )
+
+        # Stage 1b: reject bare phrases like "looking for" with no job details
+        if is_too_vague_hiring_post(message.content or ""):
+            print(
+                f"[SKIP] too vague | #{getattr(message.channel, 'name', '?')} | {preview}",
+                flush=True,
+            )
+            return
+
+        # Stage 2: Ollama Cloud — keep only developer hiring / development tasks
+        keep, ollama_note = await ollama_is_dev_hiring_post(message.content or "")
+        if ollama_note != "skipped":
+            print(
+                f"[OLLAMA] {ollama_note} | #{getattr(message.channel, 'name', '?')} | {preview}",
+                flush=True,
+            )
+        if not keep:
+            return
 
         # Highlight trigger keywords (exact ❗keyword❗).
         # Note: Discord embeds don't support coloring just the "!" characters.
