@@ -1,0 +1,274 @@
+# Tune these lists without changing Python code.
+# Matching is case-insensitive.
+
+task_request_phrases:
+  - looking for someone
+  - looking for a developer
+  - looking for developers
+  - need a developer
+  - need someone
+  - need someone to build
+  - need someone to create
+  - need someone to develop
+  - need someone to fix
+  - need help building
+  - need help developing
+  - developer needed
+  - programmer needed
+  - developer wanted
+  - programmer wanted
+  - hire a developer
+  - hiring a developer
+  - looking to hire
+  - paid project
+  - paid task
+  - freelance project
+  - freelance task
+  - commission
+  - paid commission
+  - can someone build
+  - can someone make
+  - can someone create
+  - can someone develop
+  - anyone able to build
+  - anyone able to make
+  - anyone able to develop
+  - anyone here who can build
+  - anyone here who can develop
+  - paid work
+  - project available
+  - dm if interested
+
+software_keywords:
+  - discord bot
+  - discord bots
+  - telegram bot
+  - telegram bots
+  - slack bot
+  - chatbot
+  - bot development
+  - bot developer
+  - website
+  - web app
+  - web application
+  - saas
+  - frontend
+  - backend
+  - full stack
+  - full-stack
+  - web development
+  - developer
+  - programmer
+  - software engineer
+  - software developer
+  - coding
+  - programming
+  - development
+  - engineer
+  - python
+  - javascript
+  - typescript
+  - java
+  - c#
+  - c++
+  - go
+  - rust
+  - php
+  - ruby
+  - kotlin
+  - swift
+  - react
+  - next.js
+  - vue
+  - angular
+  - node.js
+  - express
+  - django
+  - fastapi
+  - flask
+  - laravel
+  - .net
+  - api
+  - rest api
+  - graphql
+  - database
+  - postgresql
+  - mysql
+  - mongodb
+  - automation
+  - script
+  - scripting
+  - scraper
+  - web scraping
+  - browser extension
+  - chrome extension
+  - firefox extension
+  - mobile app
+  - ios
+  - android
+  - ai application
+  - machine learning
+  - llm application
+  - integration
+  - stripe integration
+  - payment integration
+  - bug fix
+  - debugging
+  - devops
+  - aws
+  - docker
+  - cloud
+
+development_actions:
+  - build
+  - create
+  - develop
+  - make
+  - fix
+  - repair
+  - automate
+  - integrate
+  - implement
+  - convert
+  - migrate
+  - deploy
+  - design
+  - code
+  - program
+  - modify
+  - customize
+  - debug
+  - scrape
+  - connect
+  - add
+  - improve
+
+collaboration_phrases:
+  - looking for a cofounder
+  - looking for cofounder
+  - looking for a co-founder
+  - looking for co-founder
+  - looking for a partner
+  - technical partner
+  - business partner
+  - long-term collaboration
+  - collaboration partner
+  - let's collaborate
+  - lets collaborate
+  - build a startup together
+
+recruiting_phrases:
+  - join our team
+  - join my team
+  - hiring full-time
+  - full-time developer
+  - full time developer
+  - part-time employee
+  - part time employee
+  - internship
+  - intern
+  - employment opportunity
+  - job opening
+
+scam_phrases:
+  - looking for bidder
+  - need bidder
+  - bidder
+  - bidding job
+  - bidding jobs
+  - bid on projects
+  - proposal writer
+  - typing job
+  - typing jobs
+  - data entry
+  - copy paste job
+  - copy/paste job
+  - form filling
+  - translation job
+  - translation jobs
+  - translator needed
+  - need translator
+  - translate documents
+  - trading opportunity
+  - forex opportunity
+  - crypto trading opportunity
+  - investment opportunity
+  - trading assistant
+  - crypto investment
+  - forex trading
+  - dropshipping opportunity
+  - dropshipping job
+  - ecommerce opportunity
+  - e-commerce opportunity
+  - store management opportunity
+  - mlm
+  - multi level marketing
+  - make money fast
+
+payment_phrases:
+  - paid
+  - budget
+  - usd
+  - $
+  - £
+  - €
+  - commission
+
+categories:
+  discord_bot:
+    - discord bot
+    - discord bots
+    - discord.js
+    - discord.py
+    - discord development
+  telegram_bot:
+    - telegram bot
+    - telegram bots
+  web_development:
+    - website
+    - web app
+    - web application
+    - frontend
+    - backend
+    - full stack
+    - full-stack
+    - react
+    - next.js
+    - vue
+    - angular
+  browser_extension:
+    - browser extension
+    - chrome extension
+    - firefox extension
+    - extension
+  automation:
+    - automation
+    - python automation
+    - script
+    - scripting
+    - scraper
+    - web scraping
+  api_integration:
+    - api
+    - rest api
+    - graphql
+    - integration
+    - stripe integration
+    - payment integration
+  mobile:
+    - mobile app
+    - ios
+    - android
+    - swift
+    - kotlin
+  ai:
+    - ai application
+    - artificial intelligence
+    - machine learning
+    - llm application
+    - chatbot
+  bug_fix:
+    - bug fix
+    - debugging
+    - fix my
+    - fix the
