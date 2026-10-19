@@ -1371,6 +1371,27 @@ def get_cmd_operator_token() -> str | None:
 # guild_id -> invite URL (reuse so we don't spam create_invite)
 _guild_invite_cache: dict[int, str] = {}
 
+# Discord embed limits (reject whole embed with HTTP 400 {"embeds":["0"]} if exceeded)
+_DISCORD_EMBED_FIELD_VALUE_MAX = 1024
+_DISCORD_EMBED_AUTHOR_NAME_MAX = 256
+
+
+def _clip_embed_text(text: str, max_len: int) -> str:
+    if len(text) <= max_len:
+        return text
+    if max_len <= 1:
+        return text[:max_len]
+    return text[: max_len - 1] + "…"
+
+
+def format_embed_code_field(text: str | None, *, max_len: int = _DISCORD_EMBED_FIELD_VALUE_MAX) -> str:
+    """Code-block field value that always fits Discord's per-field limit."""
+    if not text:
+        return "*No content*"
+    fence = 6  # opening + closing ```
+    inner = _clip_embed_text(text, max_len - fence)
+    return f"```{inner}```"
+
 
 async def resolve_join_invite_url(message: discord.Message) -> str | None:
     """Vanity URL or a channel invite so outsiders can join and open the job post."""
@@ -1389,6 +1410,17 @@ async def resolve_join_invite_url(message: discord.Message) -> str | None:
         return url
 
     channel = message.channel
+    # Threads have no create_invite — use the parent text channel instead
+    if isinstance(channel, discord.Thread):
+        channel = channel.parent
+    if channel is None or not hasattr(channel, "create_invite"):
+        print(
+            f"[WARN] could not create invite for guild={guild.id}: "
+            f"no inviteable channel for #{getattr(message.channel, 'name', '?')}",
+            flush=True,
+        )
+        return None
+
     try:
         invite = await channel.create_invite(
             max_age=0,
@@ -1605,26 +1637,39 @@ class HiringMonitor(discord.Client):
                 flags=re.IGNORECASE
             )
 
-        # Modern & professional embed
+        # Modern & professional embed (omit empty description — Discord rejects blank embed fields)
         embed = discord.Embed(
             title="🚀 New Hiring Opportunity Detected",
-            description="",
             color=0xED4245,  # Discord red accent for visibility
             timestamp=message.created_at
         )
 
         # Posted by: plain text (no profile link — avoids click-to-profile)
-        embed.set_author(
-            name=f"{message.author.display_name} -> @{message.author.name} -> [{message.author.id}]",
-            icon_url=message.author.avatar.url if message.author.avatar else None,
+        author_name = _clip_embed_text(
+            f"{message.author.display_name} -> @{message.author.name} -> [{message.author.id}]",
+            _DISCORD_EMBED_AUTHOR_NAME_MAX,
         )
+        author_kwargs = {"name": author_name}
+        if message.author.avatar:
+            author_kwargs["icon_url"] = message.author.avatar.url
+        embed.set_author(**author_kwargs)
 
         embed.add_field(
             name="Server",
-            value=f"{message.guild.name} -> [{message.guild.id}]",
+            value=_clip_embed_text(
+                f"{message.guild.name} -> [{message.guild.id}]",
+                _DISCORD_EMBED_FIELD_VALUE_MAX,
+            ),
             inline=True,
         )
-        embed.add_field(name="Channel", value=f"#{message.channel.name}", inline=True)
+        channel_label = getattr(message.channel, "name", None) or str(
+            getattr(message.channel, "id", "?")
+        )
+        embed.add_field(
+            name="Channel",
+            value=_clip_embed_text(f"#{channel_label}", _DISCORD_EMBED_FIELD_VALUE_MAX),
+            inline=True,
+        )
         safe_detector = discord.utils.escape_markdown(self.account_name)
         embed.add_field(name="Detected by", value=f"**{safe_detector}**", inline=True)
 
@@ -1647,13 +1692,17 @@ class HiringMonitor(discord.Client):
             tag_lines.append(f"Budget/Pay: {', '.join(tags['payment'])}")
 
         if tag_lines:
-            embed.add_field(name="Tags", value="\n".join(tag_lines), inline=False)
+            embed.add_field(
+                name="Tags",
+                value=_clip_embed_text("\n".join(tag_lines), _DISCORD_EMBED_FIELD_VALUE_MAX),
+                inline=False,
+            )
 
-        # Message content (only shown once)
+        # Message content (only shown once) — must stay ≤1024 chars or Discord 400s the embed
         embed.add_field(
             name="Message Content",
-            value=f"```{highlighted_content}```" if highlighted_content else "*No content*",
-            inline=False
+            value=format_embed_code_field(highlighted_content),
+            inline=False,
         )
 
         join_url = await resolve_join_invite_url(message)
@@ -1665,14 +1714,13 @@ class HiringMonitor(discord.Client):
         embed.add_field(name="Actions", value=" · ".join(action_bits), inline=False)
 
         # Footer avatar only (footer text does not support **bold**)
-        detector_avatar = None
+        footer_kwargs = {"text": "\u200b"}
         try:
             if self.user and self.user.avatar and self.user.avatar.url:
-                detector_avatar = self.user.avatar.url
+                footer_kwargs["icon_url"] = self.user.avatar.url
         except Exception:
-            detector_avatar = None
-
-        embed.set_footer(text="\u200b", icon_url=detector_avatar)
+            pass
+        embed.set_footer(**footer_kwargs)
 
         # Per detection / per logged-in account: wait 3–6s (random) before hitting the webhook
         await asyncio.sleep(random.uniform(3.0, 6.0))
