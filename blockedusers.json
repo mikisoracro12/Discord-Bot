@@ -6,10 +6,25 @@
     1554154967474897021,
     1527392841540567162,
     324550224557244417,
-    1551973190874566801
+    1551973190874566801,
+    664778327722164237
   ],
   "guild_ids": [],
   "channel_ids": [],
-  "blocked_phrases": [],
+  "blocked_phrases": [
+    "looking for a partner",
+    "free",
+    "based",
+    "caller",
+    "collaborator",
+    "collaboration",
+    "looking for a long",
+    "long-term partnership",
+    "long term partnership",
+    "US-based",
+    "AI training",
+    "US/EU/Latam",
+    "US/EU"
+  ],
   "blocked_regex": []
 }
